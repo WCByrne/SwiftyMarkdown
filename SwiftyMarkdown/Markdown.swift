@@ -22,7 +22,7 @@ A struct defining the styles that can be applied to the parsed Markdown. The `fo
 If that is not set, then the system default will be used.
 */
 @objc open class BasicStyles : NSObject, FontProperties {
-	public var fontName : String? = UIFont.preferredFont(forTextStyle: UIFontTextStyle.body).fontName
+	public var fontName : String? = UIFont.preferredFont(forTextStyle: UIFont.TextStyle.body).fontName
 	public var color = UIColor.black
 	public var fontSize : CGFloat = 0.0
 }
@@ -38,8 +38,8 @@ enum LineStyle : Int {
 	case bold
 	case code
 	case link
-	
-	static func styleFromString(_ string : String ) -> LineStyle {
+    
+	static func from(_ string : String ) -> LineStyle {
 		if string == "**" || string == "__" {
 			return .bold
 		} else if string == "*" || string == "_" {
@@ -55,7 +55,7 @@ enum LineStyle : Int {
 }
 
 /// A class that takes a [Markdown](https://daringfireball.net/projects/markdown/) string or file and returns an NSAttributedString with the applied styles. Supports Dynamic Type.
-@objc open class SwiftyMarkdown: NSObject {
+open class Markdown {
 	
 	/// The styles to apply to any H1 headers found in the Markdown
 	open var h1 = BasicStyles()
@@ -115,7 +115,6 @@ enum LineStyle : Int {
 	- returns: An initialized SwiftyMarkdown object, or nil if the string couldn't be read
 	*/
 	public init?(url : URL ) {
-		
 		do {
 			self.string = try NSString(contentsOf: url, encoding: String.Encoding.utf8.rawValue) as String
 			
@@ -168,7 +167,193 @@ enum LineStyle : Int {
 		code.fontName = name
 		link.fontName = name
 	}
-	
+    
+    
+    public class Node {
+//        var range: NSRange
+//        var parent: Node?
+//        var children: [Node]
+//        var type: NodeType
+        
+//        init() {
+//
+//        }
+        enum NodeType {
+            case text
+            case emphasis
+            case strong
+            case inlineCode
+            case codeBlock
+            case quote
+            case header
+            
+        }
+    }
+}
+
+
+extension String {
+    func hasPrefix(_ character: Character, allowSpaces: Bool) -> (Int, Range<String.Index>)? {
+        guard self.first == character else { return nil }
+        var spaceCount = 0
+        var matches = 0
+        let idx = self.firstIndex {
+            if $0 == character {
+                spaceCount = 0
+                matches += 1
+                return false
+            } else if $0 == " ".first! && spaceCount < 4 {
+                spaceCount += 1
+                return false
+            }
+            return true
+        } ?? self.endIndex
+        
+        let range = self.startIndex..<idx
+        return (matches, range)
+    }
+    
+}
+
+public extension Markdown {
+    
+    /**
+     Generates an NSAttributedString from the string or URL passed at initialisation. Custom fonts or styles are applied to the appropriate elements when this method is called.
+     
+     - returns: An NSAttributedString with the styles applied
+     */
+    public func structure() -> [Node] {
+        
+        var nodes = [Node]()
+        var openNode: Node
+        
+//        let scanner = Scanner(string: self.string)
+//        while let block = scanner.blockPrefix() else {
+//            return
+//        }
+        
+        let attributedString = NSMutableAttributedString(string: "")
+        
+        let lines = self.string.components(separatedBy: CharacterSet.newlines)
+        
+        var lineCount = 0
+        
+        let headings = ["# ", "## ", "### ", "#### ", "##### ", "###### "]
+        
+        var skipLine = false
+        for theLine in lines {
+            lineCount += 1
+            if skipLine {
+                skipLine = false
+                continue
+            }
+
+            var line = theLine == "" ? " " : theLine
+            
+            
+            
+            for heading in headings {
+                
+                if let range =  line.range(of: heading) , range.lowerBound == line.startIndex {
+                    
+                    let startHeadingString = line.replacingCharacters(in: range, with: "")
+                    
+                    // Remove ending
+                    let endHeadingString = heading.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                    line = startHeadingString.replacingOccurrences(of: endHeadingString, with: "").trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                    
+                    currentType = LineType(rawValue: headings.index(of: heading)!)!
+                    
+                    // We found a heading so break out of the inner loop
+                    break
+                }
+            }
+            
+            // Look for underlined headings
+            if lineCount  < lines.count {
+                let nextLine = lines[lineCount]
+                
+                let hasNonWhiteSpaceCharacters = line.rangeOfCharacter(from: CharacterSet.whitespacesAndNewlines.inverted) != nil
+                
+                if hasNonWhiteSpaceCharacters, let range = nextLine.range(of: "=") , range.lowerBound == nextLine.startIndex {
+                    // Make H1
+                    currentType = .h1
+                    // We need to skip the next line
+                    skipLine = true
+                }
+                
+                if hasNonWhiteSpaceCharacters, let nextRange = nextLine.range(of: "-") , nextRange.lowerBound == nextLine.startIndex {
+                    if let range = line.range(of: "-"), range.lowerBound == line.startIndex {
+                        // This is a bullet list, not an `Alt-H2`, don't skip
+                    } else {
+                        // Make H2
+                        currentType = .h2
+                        // We need to skip the next line
+                        skipLine = true
+                    }
+                }
+            }
+            
+            // If this is not an empty line...
+            if line.count > 0 {
+                
+                // ...start scanning
+                let scanner = Scanner(string: line)
+                
+                // We want to be aware of spaces
+                scanner.charactersToBeSkipped = nil
+                
+                while !scanner.isAtEnd {
+                    var string : NSString?
+                    
+                    // Get all the characters up to the ones we are interested in
+                    if scanner.scanUpToCharacters(from: instructionSet, into: &string) {
+                        
+                        if let hasString = string as String? {
+                            let bodyString = attributedStringFromString(hasString, withStyle: .none)
+                            attributedString.append(bodyString)
+                            
+                            let location = scanner.scanLocation
+                            
+                            let matchedCharacters = tagFromScanner(scanner).foundCharacters
+                            // If the next string after the characters is a space, then add it to the final string and continue
+                            
+                            let set = NSMutableCharacterSet.whitespace()
+                            set.formUnion(with: CharacterSet.punctuationCharacters)
+                            if scanner.scanUpToCharacters(from: set as CharacterSet, into: nil) {
+                                scanner.scanLocation = location
+                                attributedString.append(self.attributedStringFromScanner(scanner))
+                                
+                            } else if matchedCharacters == "[" {
+                                scanner.scanLocation = location
+                                attributedString.append(self.attributedStringFromScanner(scanner))
+                            } else {
+                                
+                                let charAtts = attributedStringFromString(matchedCharacters, withStyle: .none)
+                                attributedString.append(charAtts)
+                                
+                            }
+                        }
+                    } else {
+                        attributedString.append(self.attributedStringFromScanner(scanner, atStartOfLine: true))
+                    }
+                }
+            }
+            
+            // Append a new line character to the end of the processed line
+            if lineCount < lines.count {
+                attributedString.append(NSAttributedString(string: "\n"))
+            }
+            currentType = .body
+        }
+        
+        return nodes
+    }
+}
+
+
+
+extension Markdown {
 	/**
 	Generates an NSAttributedString from the string or URL passed at initialisation. Custom fonts or styles are applied to the appropriate elements when this method is called.
 	
@@ -294,9 +479,9 @@ enum LineStyle : Int {
 		
 		let results = self.tagFromScanner(scanner)
 		
-		var style = LineStyle.styleFromString(results.foundCharacters)
+		var style = LineStyle.from(results.foundCharacters)
 		
-		var attributes = [NSAttributedStringKey : AnyObject]()
+		var attributes = [NSAttributedString.Key : AnyObject]()
 		if style == .link {
 			
 			var linkText : NSString?
@@ -308,10 +493,9 @@ enum LineStyle : Int {
 			scanner.scanUpToCharacters(from: linkCharacters, into: &linkURL)
 			scanner.scanCharacters(from: linkCharacters, into: nil)
 			
-			
 			if let hasLink = linkText, let hasURL = linkURL {
 				followingString = hasLink
-				attributes[NSAttributedStringKey.link] = hasURL
+				attributes[NSAttributedString.Key.link] = hasURL
 			} else {
 				style = .none
 			}
@@ -359,96 +543,86 @@ enum LineStyle : Int {
 			}
 			
 		}
-		
-		
 		return (matchedCharacters, foundCharacters)
 	}
 	
-	
 	// Make H1
-	
-	func attributedStringFromString(_ string : String, withStyle style : LineStyle, attributes : [NSAttributedStringKey : AnyObject] = [:] ) -> NSAttributedString {
-		let textStyle : UIFontTextStyle
+	func attributedStringFromString(_ string : String, withStyle style : LineStyle, attributes : [NSAttributedString.Key : AnyObject] = [:] ) -> NSAttributedString {
+		let textStyle : UIFont.TextStyle
 		var fontName : String?
 		var attributes = attributes
 		var fontSize : CGFloat?
 		
 		// What type are we and is there a font name set?
-		
-		
 		switch currentType {
 		case .h1:
 			fontName = h1.fontName
 			fontSize = h1.fontSize
 			if #available(iOS 9, *) {
-				textStyle = UIFontTextStyle.title1
+				textStyle = UIFont.TextStyle.title1
 			} else {
-				textStyle = UIFontTextStyle.headline
+				textStyle = UIFont.TextStyle.headline
 			}
-			attributes[NSAttributedStringKey.foregroundColor] = h1.color
+			attributes[NSAttributedString.Key.foregroundColor] = h1.color
 		case .h2:
 			fontName = h2.fontName
 			fontSize = h2.fontSize
 			if #available(iOS 9, *) {
-				textStyle = UIFontTextStyle.title2
+				textStyle = UIFont.TextStyle.title2
 			} else {
-				textStyle = UIFontTextStyle.headline
+				textStyle = UIFont.TextStyle.headline
 			}
-			attributes[NSAttributedStringKey.foregroundColor] = h2.color
+			attributes[NSAttributedString.Key.foregroundColor] = h2.color
 		case .h3:
 			fontName = h3.fontName
 			fontSize = h3.fontSize
 			if #available(iOS 9, *) {
-				textStyle = UIFontTextStyle.title2
+				textStyle = UIFont.TextStyle.title2
 			} else {
-				textStyle = UIFontTextStyle.subheadline
+				textStyle = UIFont.TextStyle.subheadline
 			}
-			attributes[NSAttributedStringKey.foregroundColor] = h3.color
+			attributes[NSAttributedString.Key.foregroundColor] = h3.color
 		case .h4:
 			fontName = h4.fontName
 			fontSize = h4.fontSize
-			textStyle = UIFontTextStyle.headline
-			attributes[NSAttributedStringKey.foregroundColor] = h4.color
+			textStyle = UIFont.TextStyle.headline
+			attributes[NSAttributedString.Key.foregroundColor] = h4.color
 		case .h5:
 			fontName = h5.fontName
 			fontSize = h5.fontSize
-			textStyle = UIFontTextStyle.subheadline
-			attributes[NSAttributedStringKey.foregroundColor] = h5.color
+			textStyle = UIFont.TextStyle.subheadline
+			attributes[NSAttributedString.Key.foregroundColor] = h5.color
 		case .h6:
 			fontName = h6.fontName
 			fontSize = h6.fontSize
-			textStyle = UIFontTextStyle.footnote
-			attributes[NSAttributedStringKey.foregroundColor] = h6.color
+			textStyle = UIFont.TextStyle.footnote
+			attributes[NSAttributedString.Key.foregroundColor] = h6.color
 		default:
 			fontName = body.fontName
 			fontSize = body.fontSize
-			textStyle = UIFontTextStyle.body
-			attributes[NSAttributedStringKey.foregroundColor] = body.color
+			textStyle = UIFont.TextStyle.body
+			attributes[NSAttributedString.Key.foregroundColor] = body.color
 			break
 		}
 		
 		// Check for code
-		
 		if style == .code {
 			fontName = code.fontName
 			fontSize = code.fontSize
-			attributes[NSAttributedStringKey.foregroundColor] = code.color
+			attributes[NSAttributedString.Key.foregroundColor] = code.color
 		}
 		
 		if style == .link {
 			fontName = link.fontName
 			fontSize = link.fontSize
-			attributes[NSAttributedStringKey.foregroundColor] = link.color
+			attributes[NSAttributedString.Key.foregroundColor] = link.color
 		}
 		
-		// Fallback to body
-		if let _ = fontName {
-			
-		} else {
-			fontName = body.fontName
-		}
+        if fontName == nil {
+            fontName = body.fontName
+        }
 		
-		fontSize = fontSize == 0.0 ? nil : fontSize
+        fontSize = fontSize == 0.0 ? nil : fontSize
 		let font = UIFont.preferredFont(forTextStyle: textStyle)
 		let styleDescriptor = font.fontDescriptor
 		let styleSize = fontSize ?? styleDescriptor.fontAttributes[UIFontDescriptor.AttributeName.size] as? CGFloat ?? CGFloat(14)
@@ -471,12 +645,9 @@ enum LineStyle : Int {
 			if let boldDescriptor = finalFontDescriptor.withSymbolicTraits(.traitBold) {
 				finalFont = UIFont(descriptor: boldDescriptor, size: styleSize)
 			}
-			
 		}
 		
-		
-		attributes[NSAttributedStringKey.font] = finalFont
-		
+		attributes[NSAttributedString.Key.font] = finalFont
 		return NSAttributedString(string: string, attributes: attributes)
 	}
 }
