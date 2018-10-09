@@ -71,16 +71,15 @@ var state = State()
 for line in lines {
     
     let scanner = Scanner(string: line)
-    
-    
-    var open = [String:Node]()
+    var marks = [Node]()
     
     while !scanner.isAtEnd {
         if let text = scanner.scanUpToCharacters(from: markCharacters) {
+            marks
             print("Text: \(text)")
         }
         else if let markText = scanner.scanCharacters(from: markCharacters) {
-            var marks = [String]()
+            
             var escaped: Bool = false
             var last: String = ""
 
@@ -106,18 +105,16 @@ for line in lines {
             
             
             for m in marks {
-                
                 if open[m] != nil {
-                    
+                    open[m]
                 }
                 else {
                     open[m] = Node(type: <#T##NodeType#>)
                 }
-                
             }
-            
-
             print("Mark: \(marks)")
         }
     }
+    var open = [String:Node]()
+    
 }
