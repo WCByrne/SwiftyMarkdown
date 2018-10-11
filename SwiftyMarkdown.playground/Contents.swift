@@ -62,7 +62,7 @@ enum NodeType: Equatable {
     case strike(String)
     case link(String, String)
     case image(String, String)
-    
+
     init(_ string: String) {
         guard let char = string.first else {
             self = .text(string)
@@ -87,7 +87,7 @@ enum NodeType: Equatable {
             self = .text(string)
         }
     }
-    
+
     func toText() -> NodeType? {
         switch self {
         case .document: return nil
@@ -109,7 +109,7 @@ enum NodeType: Equatable {
 class Node {
     let type: NodeType
     var children = [Node]()
-    
+
     init(type: NodeType, children: [Node] = []) {
         self.type = type
         self.children = children
@@ -120,7 +120,7 @@ extension Node : CustomDebugStringConvertible {
     var debugDescription: String {
         return formattedDescription(level: 0)
     }
-    
+
     func formattedDescription(level: Int) -> String {
         var comps = [String(repeating: "\t", count: level) + "↳ \(self.type)"]
         let _children = children.map { return $0.formattedDescription(level: level + 1) }
@@ -130,7 +130,7 @@ extension Node : CustomDebugStringConvertible {
 }
 
 extension Sequence where Element == NodeType {
-    
+
     func reducingText() -> [NodeType] {
         var join: String?
         var reduced = self.reduce(into: [NodeType]()) { (res, node) in
@@ -150,7 +150,7 @@ extension Sequence where Element == NodeType {
         }
         return reduced
     }
-    
+
 }
 
 let lines = rawMarkdown.components(separatedBy: .newlines)
@@ -159,11 +159,11 @@ var state = State()
 var document = Node(type: .document)
 
 for line in lines {
-    
+
     let scanner = Scanner(string: line)
     scanner.charactersToBeSkipped = CharacterSet.newlines
     var stack = [NodeType]()
-    
+
     while true {
         if let text = scanner.scanUpToCharacters(from: markCharacters) {
             stack.append(.text(text))
@@ -171,7 +171,7 @@ for line in lines {
         else if let markText = scanner.scanCharacters(from: markCharacters) {
             var marks = [String]()
             var last: String = ""
-            
+
             func commitLast() {
                 if !last.isEmpty {
                     marks.append(last)
@@ -200,14 +200,14 @@ for line in lines {
         if scanner.isAtEnd { break }
     }
     stack.append(.text("\n"))
-    
+
     stack = stack.reducingText()
-    
+
     var cursor = 0
     func nodes(upTo end: Int) -> [Node] {
-        
+
         var res = [Node]()
-        
+
         func next(indexOf node: NodeType) -> Int? {
             var c = cursor
             while c < end {
@@ -216,11 +216,11 @@ for line in lines {
             }
             return nil
         }
-        
+
         while cursor < end {
             let current = stack[cursor]
             cursor += 1
-            
+
             switch current {
             case .text:
                 res.append(Node(type: current))
@@ -237,7 +237,6 @@ for line in lines {
         }
         return res
     }
-    
     document.children.append(contentsOf: nodes(upTo: stack.count))
 }
 
