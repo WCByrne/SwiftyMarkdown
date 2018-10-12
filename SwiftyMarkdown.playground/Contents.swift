@@ -4,12 +4,11 @@ import PlaygroundSupport
 import SwiftyMarkdown
 import Foundation
 
-
 let rawMarkdown = """
 Prefix
-# Welcome
+## Welcome to _Markdown_
 
-**Hey, this is _markdown_**.
+***Hey, this is _markdown_**.
 
 - Item 1
 - Item 2
@@ -33,7 +32,7 @@ Bold is done with \\*\\*Bold**
 //let mark = Markdown(string: "# Welcome\n**Hey**, this is markdown\n>")
 
 //scanner.charactersToBeSkipped = nil
-let markCharacters = CharacterSet(charactersIn: "*_-\n#>`[\\")
+
 
 
 extension String {
@@ -150,94 +149,111 @@ extension Sequence where Element == NodeType {
         }
         return reduced
     }
-
 }
 
-let lines = rawMarkdown.components(separatedBy: .newlines)
-var state = State()
 
-var document = Node(type: .document)
-
-for line in lines {
-
-    let scanner = Scanner(string: line)
-    scanner.charactersToBeSkipped = CharacterSet.newlines
-    var stack = [NodeType]()
-
-    while true {
-        if let text = scanner.scanUpToCharacters(from: markCharacters) {
-            stack.append(.text(text))
-        }
-        else if let markText = scanner.scanCharacters(from: markCharacters) {
-            var marks = [String]()
-            var last: String = ""
-
-            func commitLast() {
-                if !last.isEmpty {
-                    marks.append(last)
-                }
-                last = ""
-            }
-
-            for char in markText {
-                switch char {
-                case _ where last == "\\":
-                    last = "\\\(char)"
-                    commitLast()
-                case "\\":
-                    commitLast()
-                    last = "\\"
-                case _ where last.isEmpty || last.last == char:
-                    last.append(char)
-                default:
-                    commitLast()
-                    last.append(char)
-                }
-            }
-            commitLast()
-            stack.append(contentsOf: marks.map { return NodeType($0) })
-        }
-        if scanner.isAtEnd { break }
+class Parser {
+    
+    var markdown: String
+    init(markdown: String) {
+        self.markdown = markdown
     }
-    stack.append(.text("\n"))
-
-    stack = stack.reducingText()
-
-    var cursor = 0
-    func nodes(upTo end: Int) -> [Node] {
-
-        var res = [Node]()
-
-        func next(indexOf node: NodeType) -> Int? {
-            var c = cursor
-            while c < end {
-                if stack[c] == node { return c }
-                c += 1
+    
+    func parse() -> Node {
+        
+        let lines = self.markdown.components(separatedBy: .newlines)
+        let markCharacters = CharacterSet(charactersIn: "*_-\n#>`[\\")
+        var document = Node(type: .document)
+        
+        for line in lines {
+            let scanner = Scanner(string: line)
+            scanner.charactersToBeSkipped = CharacterSet.newlines
+            var stack = [NodeType]()
+            
+            while true {
+                if let text = scanner.scanUpToCharacters(from: markCharacters) {
+                    stack.append(.text(text))
+                }
+                else if let markText = scanner.scanCharacters(from: markCharacters) {
+                    var marks = [String]()
+                    var last: String = ""
+                    
+                    func commitLast() {
+                        if !last.isEmpty {
+                            marks.append(last)
+                        }
+                        last = ""
+                    }
+                    
+                    for char in markText {
+                        switch char {
+                        case _ where last == "\\":
+                            last = "\\\(char)"
+                            commitLast()
+                        case "\\":
+                            commitLast()
+                            last = "\\"
+                        case _ where last.isEmpty || last.last == char:
+                            last.append(char)
+                        default:
+                            commitLast()
+                            last.append(char)
+                        }
+                    }
+                    commitLast()
+                    stack.append(contentsOf: marks.map { return NodeType($0) })
+                }
+                if scanner.isAtEnd { break }
             }
-            return nil
-        }
-
-        while cursor < end {
-            let current = stack[cursor]
-            cursor += 1
-
-            switch current {
-            case .text:
-                res.append(Node(type: current))
-            default:
-                if let close = next(indexOf: current) {
-                    res.append(Node(type: current,
-                                    children: nodes(upTo: close)))
+            
+            stack = stack.reducingText()
+            var cursor = 0
+            func nodes(upTo end: Int) -> [Node] {
+                
+                var res = [Node]()
+                
+                func next(indexOf node: NodeType) -> Int? {
+                    var c = cursor
+                    while c < end {
+                        if stack[c] == node { return c }
+                        c += 1
+                    }
+                    return nil
+                }
+                
+                while cursor < end {
+                    let current = stack[cursor]
                     cursor += 1
+                    
+                    switch current {
+                    case .text:
+                        res.append(Node(type: current))
+                    case .heading:
+                        res.append(Node(type: current,
+                                        children: nodes(upTo: end)))
+                    case .listItem:
+                        res.append(Node(type: current,
+                                        children: nodes(upTo: end)))
+                    default:
+                        if let close = next(indexOf: current) {
+                            res.append(Node(type: current,
+                                            children: nodes(upTo: close)))
+                            cursor += 1
+                        }
+                        else if let txt = current.toText() {
+                            res.append(Node(type: txt))
+                        }
+                    }
                 }
-                else if let txt = current.toText() {
-                    res.append(Node(type: txt))
-                }
+                return res
             }
+            
+            document.children.append(contentsOf: nodes(upTo: stack.count))
         }
-        return res
+        return document
     }
-    document.children.append(contentsOf: nodes(upTo: stack.count))
 }
 
-print(document)
+
+let doc = Parser(markdown: rawMarkdown).parse()
+print(doc)
