@@ -62,31 +62,6 @@ enum NodeType: Equatable {
     case link(String, String)
     case image(String, String)
 
-    init(_ string: String) {
-        guard let char = string.first else {
-            self = .text(string)
-            return
-        }
-        switch char {
-        case "\\" where string.count > 1:
-            self = .text(String(string.dropFirst()))
-        case "*" where string.count == 1,
-             "_" where string.count == 1:
-            self = .emphasis(string)
-        case "*" where string.isRepeatedCharacter,
-             "_" where string.isRepeatedCharacter:
-            self = .strong(string)
-        case "~" where string.count > 1 && string.isRepeatedCharacter:
-            self = .strike(string)
-        case "`" where string.count == 1:
-            self = .inlineCode
-        case "#" where string.isRepeatedCharacter:
-            self = .heading(string.count)
-        default:
-            self = .text(string)
-        }
-    }
-
     func toText() -> NodeType? {
         switch self {
         case .document: return nil
@@ -165,9 +140,44 @@ class Parser {
         let markCharacters = CharacterSet(charactersIn: "*_-\n#>`[\\")
         var document = Node(type: .document)
         
-        for line in lines {
+        var isNewline = true
+        
+        
+        func nodeType(for string: String) -> NodeType {
+            guard let char = string.first else {
+                return .text(string)
+            }
+            switch char {
+            case "\\" where string.count > 1:
+                return .text(String(string.dropFirst()))
+            case "-" where isNewline && string.count == 1,
+                 "*" where isNewline && string.count == 1,
+                 "+" where isNewline && string.count == 1:
+                return .listItem
+            case "*" where string.count == 1,
+                 "_" where string.count == 1:
+                return .emphasis(string)
+            case "*" where string.isRepeatedCharacter,
+                 "_" where string.isRepeatedCharacter:
+                return .strong(string)
+            case "~" where string.count > 1 && string.isRepeatedCharacter:
+                return .strike(string)
+            case "`" where string.count == 1:
+                return .inlineCode
+            case "#" where string.isRepeatedCharacter:
+                return .heading(string.count)
+            default:
+                return .text(string)
+            }
+        }
+            
+        
+        
+        for _line in lines {
+            isNewline = true
+            let line = _line.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
             let scanner = Scanner(string: line)
-            scanner.charactersToBeSkipped = CharacterSet.newlines
+            scanner.charactersToBeSkipped = CharacterSet()
             var stack = [NodeType]()
             
             while true {
@@ -201,15 +211,15 @@ class Parser {
                         }
                     }
                     commitLast()
-                    stack.append(contentsOf: marks.map { return NodeType($0) })
+                    stack.append(contentsOf: marks.map { return nodeType(for: $0) })
                 }
                 if scanner.isAtEnd { break }
+                isNewline = false
             }
             
             stack = stack.reducingText()
             var cursor = 0
             func nodes(upTo end: Int) -> [Node] {
-                
                 var res = [Node]()
                 
                 func next(indexOf node: NodeType) -> Int? {
