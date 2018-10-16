@@ -16,6 +16,12 @@ public extension Scanner {
         self.scanCharacters(from: set, into: &temp)
         return temp as String?
     }
+    public func scanCharacters(in string: String) -> String? {
+        let set = CharacterSet(charactersIn: string)
+        var temp: NSString?
+        self.scanCharacters(from: set, into: &temp)
+        return temp as String?
+    }
     
     public func scanUpToCharacters(from set: CharacterSet) -> String? {
         var temp: NSString?

@@ -13,6 +13,8 @@ Prefix
 - Item 1
 - Item 2
 
+How does it work - magic!
+
 That's pretty neat 🤣👨‍👩‍👦‍👦
 
 > Did you know?
@@ -52,6 +54,7 @@ enum NodeType: Equatable {
     case document
     case text(String)
     case heading(Int)
+    case blockQuote(Int)
     case list(Bool)
     case listItem
     case inlineCode
@@ -71,6 +74,7 @@ enum NodeType: Equatable {
         case .listItem: return nil
         case .inlineCode: return nil
         case .codeBlock: return nil
+        case .blockQuote: return nil
         case let .emphasis(str): return .text(str)
         case let .strong(str): return .text(str)
         case let .strike(str): return .text(str)
@@ -127,6 +131,9 @@ extension Sequence where Element == NodeType {
 }
 
 
+
+
+
 class Parser {
     
     var markdown: String
@@ -139,10 +146,10 @@ class Parser {
         let lines = self.markdown.components(separatedBy: .newlines)
         let markCharacters = CharacterSet(charactersIn: "*_-\n#>`[\\")
         var document = Node(type: .document)
+        var blocks: [Node] = []
         
         var isNewline = true
-        
-        
+
         func nodeType(for string: String) -> NodeType {
             guard let char = string.first else {
                 return .text(string)
@@ -150,10 +157,10 @@ class Parser {
             switch char {
             case "\\" where string.count > 1:
                 return .text(String(string.dropFirst()))
-            case "-" where isNewline && string.count == 1,
-                 "*" where isNewline && string.count == 1,
-                 "+" where isNewline && string.count == 1:
-                return .listItem
+//            case "-" where isNewline && string.count == 1,
+//                 "*" where isNewline && string.count == 1,
+//                 "+" where isNewline && string.count == 1:
+//                return .listItem
             case "*" where string.count == 1,
                  "_" where string.count == 1:
                 return .emphasis(string)
@@ -170,8 +177,6 @@ class Parser {
                 return .text(string)
             }
         }
-            
-        
         
         for _line in lines {
             isNewline = true
@@ -181,6 +186,34 @@ class Parser {
             var stack = [NodeType]()
             
             while true {
+                if isNewline {
+                    if let text = scanner.scanCharacters(in: "#") {
+                        stack.append(.heading(text.count))
+                    } else if let text = scanner.scanCharacters(in: "> ") {
+                        let level = text.filter { return $0 == ">" }.count
+                        
+                        if blocks.
+                        
+                        // Check if we are already in a block
+                        stack.append(.blockQuote(level))
+                    }
+                    else if scanner.scanCharacters(in: "-") != nil || scanner.scanCharacters(in: "+") != nil {
+                        stack.append(.listItem)
+                    } else if let text = scanner.scanCharacters(in: "*") {
+                        if text.count == 1 {
+                            stack.append(.listItem)
+                        }
+                        else {
+                            stack.append(nodeType(for: text))
+                        }
+                    } else if let text = scanner.scanCharacters(in: "123456789") {
+                        if scanner.scanCharacters(in: ".") != nil {
+                            stack.append(.listItem)
+                        } else {
+                            stack.append(.text(text))
+                        }
+                    }
+                }
                 if let text = scanner.scanUpToCharacters(from: markCharacters) {
                     stack.append(.text(text))
                 }
@@ -194,7 +227,6 @@ class Parser {
                         }
                         last = ""
                     }
-                    
                     for char in markText {
                         switch char {
                         case _ where last == "\\":
@@ -242,6 +274,9 @@ class Parser {
                         res.append(Node(type: current,
                                         children: nodes(upTo: end)))
                     case .listItem:
+                        res.append(Node(type: current,
+                                        children: nodes(upTo: end)))
+                    case let .blockQuote(level):
                         res.append(Node(type: current,
                                         children: nodes(upTo: end)))
                     default:
