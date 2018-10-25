@@ -29,6 +29,17 @@ public extension Scanner {
         return temp as String?
     }
     
+    public func scanUpToString(_ string: String) -> String? {
+        var temp: NSString?
+        self.scanUpTo(string, into: &temp)
+        return temp as String?
+    }
+    
+    public func scanString(_ string: String) -> String? {
+        var temp: NSString?
+        self.scanString(string, into: &temp)
+        return temp as String?
+    }
     
     public func next() -> Character? {
         guard !self.isAtEnd else { return nil }
@@ -36,6 +47,27 @@ public extension Scanner {
         //        let char = (self.string as NSString?)?.character(at: self.scanLocation)
         guard self.index < self.string.endIndex else { return nil }
         return self.string[self.index]
+    }
+    
+    public func scanUnorderedList() -> String? {
+        let loc = self.scanLocation
+        guard let mark = self.scanCharacters(in: "-* ") else { return nil }
+        if mark.hasSuffix(" ") && !mark.hasPrefix(" ")
+            && mark.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).count == 1 {
+            return mark
+        }
+        self.scanLocation = loc
+        return nil
+    }
+    
+    public func scanOrderedList() -> String? {
+        let loc = self.scanLocation
+        guard let mark = self.scanCharacters(in: "0123456789") else { return nil }
+        if self.scanCharacters(in: ".") != nil {
+            return mark
+        }
+        self.scanLocation = loc
+        return nil
     }
     
     public func current() -> Character? {

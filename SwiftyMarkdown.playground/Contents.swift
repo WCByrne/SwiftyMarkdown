@@ -1,17 +1,21 @@
 //: Playground - noun: a place where people can play
 
 import PlaygroundSupport
-import SwiftyMarkdown
+import SwiftyMarkdown_mac
 import Foundation
+import AppKit
 
 let rawMarkdown = """
 Prefix
 ## Welcome to _Markdown_
 
-***Hey, this is _markdown_**.
+**Hey, this is _markdown_**.
 
 - Item 1
 - Item 2
+
+1. Thing 1
+2. Thing 2
 
 How does it work - magic!
 
@@ -19,7 +23,7 @@ That's pretty neat 🤣👨‍👩‍👦‍👦
 
 > Did you know?
 > [Markdown](www.markdown.com) can be a pain in the ass to parse!
-> > Test
+> Test
 
 This is `Code`
 
@@ -37,10 +41,16 @@ Bold is done with \\*\\*Bold**
 
 
 
+
+
 extension String {
     var isRepeatedCharacter: Bool {
         guard let first = self.first else { return false }
         return !self.contains { return $0 != first }
+    }
+    func removingPrefix(_ prefix: String) -> String {
+        guard self.hasPrefix(prefix) else { return self }
+        return String(self.dropFirst(prefix.count))
     }
 }
 
@@ -94,6 +104,49 @@ class Node {
     }
 }
 
+extension NSAttributedString {
+    var range: NSRange {
+        return NSRange(location: 0, length: self.length)
+    }
+}
+
+
+//
+//struct AttributedStringRenderer {
+//
+//    func render(node: Node) -> NSAttributedString {
+//        let result = self.children.reduce(into: NSMutableAttributedString()) {
+//            $0.append($1.attributedString())
+//        }
+//        switch self.type {
+//        case .emphasis:
+//            result.addAttributes([.font: UIFont.italicSystemFont(ofSize: 14)],
+//                                 range: result.range)
+//        case .strong:
+//            result.addAttributes([.font: UIFont.boldSystemFont(ofSize: 14)],
+//                                 range: result.range)
+//        case let .text(str):
+//            return NSAttributedString(string: str)
+//        case .strike:
+//            result.addAttributes([.strikethroughStyle: NSUnderlineStyle.single],
+//                                 range: result.range)
+//        case let .link(title, url):
+//            let attrs: [NSAttributedString.Key: Any] = [
+//                .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+//                .link: url
+//            ]
+//            return NSAttributedString(string: title, attributes: attrs)
+//        default:
+//            break
+//        }
+//        return result
+//
+//    }
+//
+//}
+
+
+
 extension Node : CustomDebugStringConvertible {
     var debugDescription: String {
         return formattedDescription(level: 0)
@@ -104,6 +157,82 @@ extension Node : CustomDebugStringConvertible {
         let _children = children.map { return $0.formattedDescription(level: level + 1) }
         comps.append(contentsOf: _children)
         return comps.joined(separator: "\n")
+    }
+    
+    func attributedString() -> NSAttributedString {
+        
+        
+        struct Font {
+            let base: NSFont
+            var size: CGFloat?
+            var color: NSColor?
+            var bold: Bool = false
+            var italic: Bool = false
+            
+            init(base: NSFont = NSFont.systemFont(ofSize: 13)) {
+                self.base = base
+            }
+            
+            var traits: NSFontTraitMask {
+                var t = NSFontTraitMask()
+                if self.bold { t.insert(.boldFontMask) }
+                if self.italic { t.insert(.italicFontMask) }
+                return t
+            }
+
+            var font: NSFont {
+                let manager = NSFontManager.shared
+                var f = manager.convert(base, toHaveTrait: self.traits)
+                if let s = self.size {
+                    f = manager.convert(f, toSize: s)
+                }
+                return f
+            }
+            var attributes: [NSAttributedString.Key: Any] {
+                return [
+                    .font: self.font
+                ]
+            }
+        }
+        
+        var font = Font()
+        
+        func render(node: Node) -> NSAttributedString {
+            
+            func processChildren() -> NSMutableAttributedString {
+                print("Processing children: \(self)")
+                return node.children.reduce(into: NSMutableAttributedString()) {
+                    $0.append(render(node: $1))
+                }
+            }
+            switch self.type {
+            case .emphasis:
+                font.italic = true
+                defer { font.italic = false }
+                return processChildren()
+            case .strong:
+                font.italic = true
+                defer { font.italic = false }
+                return processChildren()
+                
+            case let .text(str):
+                return NSAttributedString(string: str, attributes: font.attributes)
+            case .strike:
+                let result = processChildren()
+                result.addAttributes([.strikethroughStyle: NSUnderlineStyle.single],
+                                     range: result.range)
+                return result
+            case let .link(title, url):
+                var attrs = font.attributes
+                attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+                attrs[.link] = url
+                return NSAttributedString(string: title, attributes: attrs)
+            default:
+                return processChildren()
+            }
+        }
+        
+        return render(node: self)
     }
 }
 
@@ -141,12 +270,24 @@ class Parser {
         self.markdown = markdown
     }
     
+    struct Option: OptionSet {
+        let rawValue: Int
+        
+        static let blockQuote = Option(rawValue: 1 << 0)
+        static let inlineCode = Option(rawValue: 1 << 1)
+        static let codeBlock = Option(rawValue: 1 << 2)
+        static let headings = Option(rawValue: 1 << 3)
+        static let orderedList = Option(rawValue: 1 << 4)
+        static let unorderedList = Option(rawValue: 1 << 5)
+    }
+    
+    var options: Option = [.orderedList, .unorderedList, .blockQuote, .inlineCode]
+    
     func parse() -> Node {
         
         let lines = self.markdown.components(separatedBy: .newlines)
-        let markCharacters = CharacterSet(charactersIn: "*_-\n#>`[\\")
+        let markCharacters = CharacterSet(charactersIn: "*_-#>`[\\")
         var document = Node(type: .document)
-        var blocks: [Node] = []
         
         var isNewline = true
 
@@ -171,12 +312,14 @@ class Parser {
                 return .strike(string)
             case "`" where string.count == 1:
                 return .inlineCode
-            case "#" where string.isRepeatedCharacter:
-                return .heading(string.count)
             default:
                 return .text(string)
             }
         }
+        
+        var quote: Node?
+        var code: Node?
+        var list: Node?
         
         for _line in lines {
             isNewline = true
@@ -187,31 +330,23 @@ class Parser {
             
             while true {
                 if isNewline {
-                    if let text = scanner.scanCharacters(in: "#") {
-                        stack.append(.heading(text.count))
-                    } else if let text = scanner.scanCharacters(in: "> ") {
+                    if options.contains(.blockQuote), let text = scanner.scanCharacters(in: "> ") {
                         let level = text.filter { return $0 == ">" }.count
-                        
-                        if blocks.
-                        
                         // Check if we are already in a block
-                        stack.append(.blockQuote(level))
+                        if quote == nil {
+                            quote = Node(type: .blockQuote(level))
+                        }
+                    } else if let q = quote {
+                        document.children.append(q)
+                        quote = nil
                     }
-                    else if scanner.scanCharacters(in: "-") != nil || scanner.scanCharacters(in: "+") != nil {
+                    
+                    if options.contains(.headings), let text = scanner.scanCharacters(in: "#") {
+                        stack.append(.heading(text.count))
+                    } else if options.contains(.unorderedList), scanner.scanUnorderedList() != nil {
                         stack.append(.listItem)
-                    } else if let text = scanner.scanCharacters(in: "*") {
-                        if text.count == 1 {
-                            stack.append(.listItem)
-                        }
-                        else {
-                            stack.append(nodeType(for: text))
-                        }
-                    } else if let text = scanner.scanCharacters(in: "123456789") {
-                        if scanner.scanCharacters(in: ".") != nil {
-                            stack.append(.listItem)
-                        } else {
-                            stack.append(.text(text))
-                        }
+                    } else if options.contains(.orderedList), scanner.scanOrderedList() != nil {
+                        stack.append(.listItem)
                     }
                 }
                 if let text = scanner.scanUpToCharacters(from: markCharacters) {
@@ -235,6 +370,17 @@ class Parser {
                         case "\\":
                             commitLast()
                             last = "\\"
+                        case "[":
+                            let loc = scanner.scanLocation
+                            if let title = scanner.scanUpToString("]("),
+                                let link = scanner.scanUpToString(")")?.removingPrefix("](") {
+                                scanner.scanString(")", into: nil)
+                                stack.append(.link(title, link))
+                            } else {
+                                scanner.scanLocation = loc
+                                commitLast()
+                                last.append(char)
+                            }
                         case _ where last.isEmpty || last.last == char:
                             last.append(char)
                         default:
@@ -249,7 +395,9 @@ class Parser {
                 isNewline = false
             }
             
+            stack.append(NodeType.text("\n"))
             stack = stack.reducingText()
+
             var cursor = 0
             func nodes(upTo end: Int) -> [Node] {
                 var res = [Node]()
@@ -276,9 +424,12 @@ class Parser {
                     case .listItem:
                         res.append(Node(type: current,
                                         children: nodes(upTo: end)))
-                    case let .blockQuote(level):
-                        res.append(Node(type: current,
-                                        children: nodes(upTo: end)))
+                    case .blockQuote:
+                        print("Got block quote when parsing children ??")
+//                        res.append(Node(type: current,
+//                                        children: nodes(upTo: end)))
+                    case .link:
+                        res.append(Node(type: current))
                     default:
                         if let close = next(indexOf: current) {
                             res.append(Node(type: current,
@@ -293,7 +444,9 @@ class Parser {
                 return res
             }
             
-            document.children.append(contentsOf: nodes(upTo: stack.count))
+            
+            let newNodes = nodes(upTo: stack.count)
+            (quote ?? document).children.append(contentsOf: newNodes)
         }
         return document
     }
@@ -302,3 +455,6 @@ class Parser {
 
 let doc = Parser(markdown: rawMarkdown).parse()
 print(doc)
+
+print(doc.attributedString())
+
